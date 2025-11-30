@@ -1,38 +1,49 @@
-import { gemini20Flash, googleAI } from "@genkit-ai/googleai";
-import { genkit } from "genkit";
 import { getReviewsByGameId } from "@/src/lib/firebase/firestore.js";
 import { getAuthenticatedAppForUser } from "@/src/lib/firebase/serverApp";
 import { getFirestore } from "firebase/firestore";
 
-export async function GeminiSummary({ restaurantId }) {
-  const { firebaseServerApp } = await getAuthenticatedAppForUser();
-  const reviews = await getReviewsByRestaurantId(
-    getFirestore(firebaseServerApp),
-    restaurantId
-  );
-
-  const reviewSeparator = "@";
-  const prompt = `
-    Based on the following restaurant reviews, 
-    where each review is separated by a '${reviewSeparator}' character, 
-    create a one-sentence summary of what people think of the restaurant. 
-
-    Here are the reviews: ${reviews.map((review) => review.text).join(reviewSeparator)}
-  `;
-
+export async function GeminiSummary({ gameId }) {
   try {
-    if (!process.env.GEMINI_API_KEY) {
-      // Make sure GEMINI_API_KEY environment variable is set:
-      // https://genkit.dev/docs/get-started/
-      throw new Error(
-        'GEMINI_API_KEY not set. Set it with "firebase apphosting:secrets:set GEMINI_API_KEY"'
+    const { firebaseServerApp } = await getAuthenticatedAppForUser();
+    const reviews = await getReviewsByGameId(
+      getFirestore(firebaseServerApp),
+      gameId
+    );
+
+    // If no reviews yet, show a message
+    if (!reviews || reviews.length === 0) {
+      return (
+        <div className="restaurant__review_summary">
+          <p>No reviews yet - be the first to review this game!</p>
+        </div>
       );
     }
 
-    // Configure a Genkit instance.
+    // Check if Gemini API key is available
+    if (!process.env.GEMINI_API_KEY) {
+      return (
+        <div className="restaurant__review_summary">
+          <p>📊 {reviews.length} review{reviews.length !== 1 ? 's' : ''} for this game</p>
+        </div>
+      );
+    }
+
+    // Dynamic import to avoid issues if genkit isn't configured
+    const { gemini20Flash, googleAI } = await import("@genkit-ai/googleai");
+    const { genkit } = await import("genkit");
+
+    const reviewSeparator = "@";
+    const prompt = `
+      Based on the following video game reviews, 
+      where each review is separated by a '${reviewSeparator}' character, 
+      create a one-sentence summary of what players think of the game. 
+
+      Here are the reviews: ${reviews.map((review) => review.text).join(reviewSeparator)}
+    `;
+
     const ai = genkit({
       plugins: [googleAI()],
-      model: gemini20Flash, // set default model
+      model: gemini20Flash,
     });
     const { text } = await ai.generate(prompt);
 
@@ -43,15 +54,19 @@ export async function GeminiSummary({ restaurantId }) {
       </div>
     );
   } catch (e) {
-    console.error(e);
-    return <p>Error summarizing reviews.</p>;
+    console.error("GeminiSummary error:", e);
+    return (
+      <div className="restaurant__review_summary">
+        <p>Review summary unavailable</p>
+      </div>
+    );
   }
 }
 
 export function GeminiSummarySkeleton() {
   return (
     <div className="restaurant__review_summary">
-      <p>✨ Summarizing reviews with Gemini...</p>
+      <p>✨ Loading summary...</p>
     </div>
   );
 }
